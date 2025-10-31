@@ -8,19 +8,22 @@ go
 -- Count (*)     : todas las filas de esa tabla.
 -- Count columna : todas las filas donde esa columna no es nula.
 
--- SUM           : suma el valor numÈrico de esa columna. Ignora los valores NULL.
+-- SUM           : suma el valor num√©rico de esa columna. Ignora los valores NULL.
 
--- øCuando uso COUNT?   - Cuando no me importa el valor de esos datos.  (para validar existencia... ej: "existe al menos uno ")
--- øCuando uso SUM?     - Cuando necesito el valor total de una columna.(para validar lÌmites... ej: "el total es +100")
+-- ¬øCuando uso COUNT?   - Cuando no me importa el valor de esos datos.  (para validar existencia... ej: "existe al menos uno ")
+-- ¬øCuando uso SUM?     - Cuando necesito el valor total de una columna.(para validar l√≠mites... ej: "el total es +100")
+
+-- Alter: cambia o agrega columnas
+-- Update: para actualizar datos/campos
 ---------------------------------------------------------------------------------------------------------------------------
 
 -- (en base al siguiente ejercicio de parcial) 
-/* Se agregÛ recientemente un campo CUIT a la tabla de clientes. 
-Debido a un error, se generaron m˙ltiples registros de clientes con el mismo CUIT.
-Se deber· desarrollar un algoritmo de depuraciÛn de datos que identifique y corrija
-estos duplicados, manteniendo un ˙nico registro por CUIT. Ser· necesario definir un
-criterio de selecciÛn para determinar quÈ registro conservar y cu·les eliminar.
-Adicionalmente, se deber· implementar una restricciÛn que impida la creaciÛn futura
+/* Se agreg√≥ recientemente un campo CUIT a la tabla de clientes. 
+Debido a un error, se generaron m√∫ltiples registros de clientes con el mismo CUIT.
+Se deber√° desarrollar un algoritmo de depuraci√≥n de datos que identifique y corrija
+estos duplicados, manteniendo un √∫nico registro por CUIT. Ser√° necesario definir un
+criterio de selecci√≥n para determinar qu√© registro conservar y cu√°les eliminar.
+Adicionalmente, se deber√° implementar una restricci√≥n que impida la creaci√≥n futura
 de registros con CUIT duplicado. 
 */
 
@@ -45,12 +48,39 @@ update cliente set clie_cuit = (select cuit from cliente_aux where cod = clie_co
 alter table cliente add constraint unica unique (clie_cuit)
 go
 
-/* TRIGGER + FUNCIÛN RECURSIVA  
-Ejercicio 12: Cree el/los objetos de base de datos necesarios para que nunca un producto pueda ser compuesto por sÌ mismo. 
+------------------------------
+/* Otra forma de resolverlo */
+------------------------------
+ALTER TABLE Cliente ADD clie_cuit char(10)
+GO
+
+CREATE PROCEDURE depurar_duplicados
+AS
+BEGIN
+     DELETE FROM Cliente WHERE clie_codigo NOT IN ( --me quedo con el minimo y borro lo demas 
+     SELECT MIN(clie_codigo)
+     FROM Cliente
+     GROUP BY clie_cuit)
+END
+GO
+
+CREATE TRIGGER detectar_duplicados ON Cliente
+AFTER INSERT, UPDATE
+AS
+BEGIN
+     IF EXISTS (SELECT 1 FROM inserted GROUP BY clie_cuit HAVING COUNT(1) > 1) --si hay uno multiplicado por cuit
+     BEGIN ROLLBACK TRANSACTION --deshago la operacion
+     RAISERROR('ERROR: Se esta cargando mas de una vez un mismo CUIT'),
+     END
+END
+GO
+
+/* TRIGGER + FUNCI√≥N RECURSIVA  
+Ejercicio 12: Cree el/los objetos de base de datos necesarios para que nunca un producto pueda ser compuesto por s√≠ mismo. 
 Se sabe que en la actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes 
-tipos y tecnologÌas. No se conoce la cantidad de  niveles de composiciÛn existentes.
+tipos y tecnolog√≠as. No se conoce la cantidad de  niveles de composici√≥n existentes.
 --
-Es un trigger que se ejecuta "AFTER INSERT" un registro. En caso de que cumpla con la condiciÛn, se rollbackea.
+Es un trigger que se ejecuta "AFTER INSERT" un registro. En caso de que cumpla con la condici√≥n, se rollbackea.
 La condicion, la evaluamos de forma RECURSIVA en una funcion. 
 
 */
@@ -89,14 +119,14 @@ AS BEGIN
 END
 GO 
 
-/* TRIGGER + FUNCIÛN RECURSIVA  
-Ejercicio 13: Cree el/los objetos de base de datos necesarios para implantar la siguiente regla ìNing˙n jefe puede tener 
-un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)î. Se sabe que en la 
-actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos y tecnologÌas
+/* TRIGGER + FUNCI√≥N RECURSIVA  
+Ejercicio 13: Cree el/los objetos de base de datos necesarios para implantar la siguiente regla ‚ÄúNing√∫n jefe puede tener 
+un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)‚Äù. Se sabe que en la 
+actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos y tecnolog√≠as
 --
-Es un trigger que se ejecuta AFTER UPDATE - DELETE, debido a que al eliminar o cambiar el sueldo de un empleado, podrÌa afectar
+Es un trigger que se ejecuta AFTER UPDATE - DELETE, debido a que al eliminar o cambiar el sueldo de un empleado, podr√≠a afectar
 a este calculo del 20% mientras que con un INSERT, este calculo siempre hace cumplir la regla.
-La condiciÛn la evaluamos en una funciÛn, en la que dentro del RETURN aplicamos la recursividad ("indirectos")
+La condici√≥n la evaluamos en una funci√≥n, en la que dentro del RETURN aplicamos la recursividad ("indirectos")
 */
 CREATE FUNCTION ej13 (@codigo numeric(6))
 RETURNS INT
@@ -125,7 +155,7 @@ BEGIN
 END
 GO
 
-/* FUNCIÛN RECURSIVA 
+/* FUNCI√≥N RECURSIVA 
 Ejercicio 15: Cree el/los objetos de base de datos necesarios para que el objeto principal reciba un producto como parametro y retorne 
 el precio del mismo. Se debe prever que el precio de los productos compuestos sera la sumatoria de los componentes del mismo multiplicado
 por sus respectivas cantidades.  No se conocen los nivles de anidamiento posibles de los productos. Se asegura que nunca un producto esta 
@@ -140,9 +170,9 @@ BEGIN
     -- Verifica si el producto es COMPUESTO
     IF EXISTS (SELECT 1 FROM Composicion WHERE comp_producto = @prodCod)
     BEGIN
-        -- SÕ ES COMPUESTO (Caso Recursivo)
+        -- S√ç ES COMPUESTO (Caso Recursivo)
         -- Calcula el precio sumando el precio de CADA componente
-        -- (llamando a esta misma funciÛn) multiplicado por su cantidad.
+        -- (llamando a esta misma funci√≥n) multiplicado por su cantidad.
         SELECT @precioTotal = SUM(dbo.ejercicio15(c.comp_componente) * c.comp_cantidad)
         FROM Composicion c
         WHERE c.comp_producto = @prodCod
@@ -161,3 +191,39 @@ BEGIN
     RETURN ISNULL(@precioTotal, 0)
 END
 GO
+
+----------------------------------------------------------------------------------------------------------------------
+-- Ejercicio de parcial: (Trabajo con PK, FK y drop)
+
+/* Por un error de programaci√≥n la tabla item factura le ejecutaron DROP a la primary key y a sus foreign key.
+Este evento permiti√≥ la inserci√≥n de filas duplicadas (exactas e iguales) y tambi√©n inconsistencias debido a la falta de FK.
+Realizar un algoritmo que resuelva este inconveniente depurando los datos de manera coherente y l√≥gica y que deje la estructura de la tabla item 
+factura de manera correcta. */
+
+CREATE TABLE Item_Factura_Nueva (
+    item_tipo char(1),
+    item_sucursal char(4),
+    item_numero char(8),
+    item_producto char(8),
+    item_cantidad decimal(12,2),
+	item_precio decimal(12,2)
+)
+
+INSERT INTO Item_Factura_Nueva (item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+SELECT DISTINCT item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio
+FROM Item_Factura
+-- Where prod and fact is not null ...
+
+TRUNCATE TABLE Item_Factura
+
+INSERT INTO Item_Factura (item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+SELECT item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio
+FROM Item_Factura_Nueva
+
+ALTER TABLE Item_Factura
+ADD FOREIGN KEY (item_tipo, item_sucursal, item_numero) REFERENCES Factura (fact_tipo, fact_sucursal, fact_numero);
+
+ALTER TABLE Item_Factura
+ADD FOREIGN KEY (item_producto) REFERENCES Producto (prod_codigo)
+
+DROP TABLE Item_Factura_Nueva
