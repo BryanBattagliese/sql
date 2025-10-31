@@ -1,0 +1,163 @@
+use[GD2015C1]
+go
+
+---------------------
+-- Consideraciones --
+
+-- Count         : cuenta la "cantidad de filas".
+-- Count (*)     : todas las filas de esa tabla.
+-- Count columna : todas las filas donde esa columna no es nula.
+
+-- SUM           : suma el valor numérico de esa columna. Ignora los valores NULL.
+
+-- ¿Cuando uso COUNT?   - Cuando no me importa el valor de esos datos.  (para validar existencia... ej: "existe al menos uno ")
+-- ¿Cuando uso SUM?     - Cuando necesito el valor total de una columna.(para validar límites... ej: "el total es +100")
+---------------------------------------------------------------------------------------------------------------------------
+
+-- (en base al siguiente ejercicio de parcial) 
+/* Se agregó recientemente un campo CUIT a la tabla de clientes. 
+Debido a un error, se generaron múltiples registros de clientes con el mismo CUIT.
+Se deberá desarrollar un algoritmo de depuración de datos que identifique y corrija
+estos duplicados, manteniendo un único registro por CUIT. Será necesario definir un
+criterio de selección para determinar qué registro conservar y cuáles eliminar.
+Adicionalmente, se deberá implementar una restricción que impida la creación futura
+de registros con CUIT duplicado. 
+*/
+
+-- Modificar una tabla existente: 
+-- Crear un nuevo campo/columna
+alter table cliente add clie_cuit char(13)
+
+-- Crear tabla aux para guardar algunos datos (en este ejemplo, busco los CUITs unicos... y los inserto)
+create table cliente_aux(cod char(6), cuit char(13))
+insert into cliente_aux
+select min(clie_codigo), clie_cuit
+from Cliente
+group by clie_cuit
+
+-- Elmino los datos de esa columna de la tabla original
+update cliente set clie_cuit = null
+
+-- Inserto los nuevos datos que tenia en la tabla auxiliar
+update cliente set clie_cuit = (select cuit from cliente_aux where cod = clie_codigo)
+
+-- Seteo que un campo de la tabla sea "unico" (para ahorrarme el trigger a la hora de insertar)
+alter table cliente add constraint unica unique (clie_cuit)
+go
+
+/* TRIGGER + FUNCIóN RECURSIVA  
+Ejercicio 12: Cree el/los objetos de base de datos necesarios para que nunca un producto pueda ser compuesto por sí mismo. 
+Se sabe que en la actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes 
+tipos y tecnologías. No se conoce la cantidad de  niveles de composición existentes.
+--
+Es un trigger que se ejecuta "AFTER INSERT" un registro. En caso de que cumpla con la condición, se rollbackea.
+La condicion, la evaluamos de forma RECURSIVA en una funcion. 
+
+*/
+CREATE FUNCTION ejE12 (@componente char(8), @producto char(8))
+RETURNS INT
+AS
+BEGIN
+     DECLARE @retorno int, @comp char(8)
+
+	   IF @producto = @componente
+	     SET @retorno = 1
+	   
+	   ELSE 
+	     BEGIN
+	      DECLARE cur CURSOR FOR SELECT comp_componente FROM Composicion WHERE comp_producto = @producto
+          OPEN cur
+	      FETCH NEXT FROM cur INTO @comp
+	      WHILE @@FETCH_STATUS = 0 AND @retorno = 0
+	       BEGIN
+		        SELECT @retorno = dbo.ejE12(@producto, @comp)
+		        FETCH NEXT FROM cur INTO @comp
+	       END
+		 CLOSE cur 
+		 DEALLOCATE cur
+		END
+
+	RETURN @retorno
+END
+GO
+
+CREATE TRIGGER ejercicio12 ON Composicion AFTER INSERT 
+AS BEGIN 
+   IF (SELECT COUNT(*) FROM inserted i  WHERE dbo.ejE12(i.comp_componente,i.comp_producto) = 1) > 0
+   BEGIN ROLLBACK TRANSACTION
+   END
+END
+GO 
+
+/* TRIGGER + FUNCIóN RECURSIVA  
+Ejercicio 13: Cree el/los objetos de base de datos necesarios para implantar la siguiente regla “Ningún jefe puede tener 
+un salario mayor al 20% de las suma de los salarios de sus empleados totales (directos + indirectos)”. Se sabe que en la 
+actualidad dicha regla se cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos y tecnologías
+--
+Es un trigger que se ejecuta AFTER UPDATE - DELETE, debido a que al eliminar o cambiar el sueldo de un empleado, podría afectar
+a este calculo del 20% mientras que con un INSERT, este calculo siempre hace cumplir la regla.
+La condición la evaluamos en una función, en la que dentro del RETURN aplicamos la recursividad ("indirectos")
+*/
+CREATE FUNCTION ej13 (@codigo numeric(6))
+RETURNS INT
+AS
+BEGIN
+    RETURN (SELECT SUM(empl_salario + dbo.ej13(empl_codigo)) FROM Empleado WHERE empl_jefe = @codigo)
+
+END
+GO
+
+CREATE TRIGGER ejercicio13 ON Empleado AFTER UPDATE, DELETE
+AS
+BEGIN 
+     IF(SELECT COUNT(*) FROM inserted i WHERE (SELECT empl_salario FROM Empleado WHERE empl_codigo = i.empl_jefe) 
+	  < dbo.ej13(i.empl_jefe) * 0.2) < 0 -- cuento los jefes para los que los salarios de sus empleados son menores a 
+      BEGIN ROLLBACK TRANSACTION
+	  PRINT 'El salario del jefe no puede ser mayor al 20% de la suma de los de sus empleados'
+      END
+
+	  BEGIN
+	  IF(SELECT COUNT(*) FROM deleted d WHERE (SELECT empl_salario FROM Empleado WHERE empl_codigo = d.empl_jefe) 
+	  < dbo.ej13(d.empl_jefe) * 0.2) < 0 -- cuento los jefes para los que los salarios de sus empleados son menores a 
+      ROLLBACK TRANSACTION
+	  PRINT 'El salario del jefe no puede ser mayor al 20% de la suma de los de sus empleados'
+      END
+END
+GO
+
+/* FUNCIóN RECURSIVA 
+Ejercicio 15: Cree el/los objetos de base de datos necesarios para que el objeto principal reciba un producto como parametro y retorne 
+el precio del mismo. Se debe prever que el precio de los productos compuestos sera la sumatoria de los componentes del mismo multiplicado
+por sus respectivas cantidades.  No se conocen los nivles de anidamiento posibles de los productos. Se asegura que nunca un producto esta 
+compuesto por si mismo a ningun nivel. El objeto principal debe poder ser utilizado como filtro en el where de una sentencia select.
+*/
+CREATE FUNCTION ejercicio15 (@prodCod char(8))
+RETURNS decimal(12,2)
+AS
+BEGIN
+    DECLARE @precioTotal decimal(12,2)
+
+    -- Verifica si el producto es COMPUESTO
+    IF EXISTS (SELECT 1 FROM Composicion WHERE comp_producto = @prodCod)
+    BEGIN
+        -- SÍ ES COMPUESTO (Caso Recursivo)
+        -- Calcula el precio sumando el precio de CADA componente
+        -- (llamando a esta misma función) multiplicado por su cantidad.
+        SELECT @precioTotal = SUM(dbo.ejercicio15(c.comp_componente) * c.comp_cantidad)
+        FROM Composicion c
+        WHERE c.comp_producto = @prodCod
+    END
+    ELSE
+    BEGIN
+        -- NO ES COMPUESTO (Caso Base)
+        -- Simplemente obtiene el precio de la tabla Producto.
+        SELECT @precioTotal = prod_precio
+        FROM Producto
+        WHERE prod_codigo = @prodCod
+    END
+
+    -- Devuelve el precio (el simple o el calculado)
+    -- Se usa ISNULL por si un producto simple no tiene precio y devuelve NULL.
+    RETURN ISNULL(@precioTotal, 0)
+END
+GO
