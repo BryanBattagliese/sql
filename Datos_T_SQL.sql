@@ -227,3 +227,106 @@ ALTER TABLE Item_Factura
 ADD FOREIGN KEY (item_producto) REFERENCES Producto (prod_codigo)
 
 DROP TABLE Item_Factura_Nueva
+go
+
+-----
+-- Ejercicio de parcial (trigger) 
+/* Implementar una regla de negocio en línea donde nunca una factura
+nueva tenga un precio de producto distinto al que figura en la tabla
+PRODUCTO. Registrar en una estructura adicional todos los casos
+donde se intenta guardar un precio distinto. 
+*/
+
+-- Creo la tabla "erronea" para guardar los datos
+
+create table factura_erronea(
+		tipo char(1), 
+		sucursal char(4), 
+		numero char(8), 
+		fecha smalldatetime, 
+		vendedor numeric(6,0), 
+		totalErroneo decimal(12,2),
+		totalErroneoImp decimal(12,2), 
+		cliente char(6)
+) go
+
+create trigger ejercicioParcialN on Item_factura instead of insert
+as
+begin
+
+	-- Si existe algun insertado con precio DISTINTO ...
+	if exists (
+	select *
+	from Producto p join inserted i on i.item_producto=p.prod_codigo
+	where p.prod_precio <> i.item_precio
+	)
+	
+	begin
+	-- Registro en tabla alternativa los datos "incorrectos"
+	insert into factura_erronea(tipo,sucursal,numero,fecha,vendedor,totalErroneo,totalErroneoImp,cliente)
+	select 
+		i.item_tipo,
+		i.item_sucursal,
+		i.item_numero,
+		f.fact_fecha,
+		f.fact_vendedor,
+		f.fact_total,
+		f.fact_total_impuestos,
+		f.fact_cliente
+
+	from inserted i join Factura f on f.fact_sucursal = i.item_sucursal and
+									  i.item_tipo = f.fact_tipo and
+									  i.item_numero = f.fact_numero
+	print('El precio de algun producto no coincide con el "item" de la factura')
+	end
+
+	else
+		insert into Item_Factura(item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio)
+		select i.item_tipo, i.item_sucursal, i.item_numero, i.item_producto, i.item_cantidad, i.item_precio
+		from inserted i
+		join Producto p on i.item_producto = p.prod_codigo
+		where p.prod_precio = i.item_precio
+end
+go
+
+-----
+-- Ejercicio de parcial (trigger)
+/* Implementar una regla de negocio de validación en línea que permita
+implementar una lógica de control de precios en las ventas. 
+Se deberá poder seleccionar una lista de rubros y aquellos productos de los rubros
+que sean los seleccionados no podrán aumentar por mes más de un 2%. 
+En caso que no se tenga referencia del mes anterior no validar dicha regla. */
+
+CREATE TABLE rubros_seleccionados (cod_rubro char(8))
+GO
+
+create trigger ejParcialn2 on Producto after update 
+as
+begin
+
+	if exists(
+		select 1
+		from inserted p join rubros_seleccionados r on r.cod_rubro = p.prod_rubro
+		join Item_Factura it on p.prod_codigo = it.item_producto join Factura fac on 
+									  fac.fact_sucursal = it.item_sucursal and
+									  it.item_tipo = fac.fact_tipo and
+									  it.item_numero = fac.fact_numero
+
+		where p.prod_precio > 1.02 * 
+		(
+			select i.item_precio,0
+			from Item_Factura i join Factura f 
+			on f.fact_sucursal = i.item_sucursal
+			and i.item_tipo = f.fact_tipo 
+			and i.item_numero = f.fact_numero
+			
+			where (month(f.fact_fecha) = month((fac.fact_fecha)-1)) and i.item_producto = p.prod_codigo
+			
+		)
+	)
+
+	begin rollback transaction
+	end
+end
+go
+
